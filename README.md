@@ -272,6 +272,15 @@ about 10 seconds and needs no network or running nodes.
   numbers will differ in detail from the reference results. The figures and
   numbers in this repository are reproduced exactly from the result tables.
 
+## Authors
+
+- Javier Mateos-Bravo, University of Extremadura, Spain
+- Sergio Laso, University of Extremadura, Spain
+- Juan Luis Herrera, University of Extremadura, Spain
+- Ilir Murturi, University of Prishtina, Kosova
+- Pantelis Frangoudis, TU Wien, Austria
+- Schahram Dustdar, TU Wien, Austria
+
 ## Citation
 
 If you use ARGOS, please cite it using the metadata in
