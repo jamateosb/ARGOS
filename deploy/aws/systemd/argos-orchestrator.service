@@ -1,0 +1,16 @@
+[Unit]
+Description=ARGOS Orchestrator API
+After=network.target argos-node.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/argos/ARGOS/src
+EnvironmentFile=-/etc/argos-orchestrator.env
+ExecStart=/opt/argos/ARGOS/.venv/bin/uvicorn argos.orchestrator.api:app --host 0.0.0.0 --port 8001
+Restart=always
+RestartSec=3
+TimeoutStopSec=25
+
+[Install]
+WantedBy=multi-user.target

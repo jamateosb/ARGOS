@@ -1,0 +1,223 @@
+# =============================================================================
+# ARGOS configuration.
+#
+# rl, default_job, benchmark, orchestration, cost_model, and live_trial hold the
+# values of the reference evaluation. runtime and cluster describe a three-node
+# deployment: replace every <...> placeholder with your own values, and keep
+# API tokens in environment variables rather than in this file.
+# =============================================================================
+
+runtime:
+  ssh:
+    user: "<SSH_USER>"
+    key_path: "<PATH_TO_SSH_KEY>"
+
+cluster:
+  name: "argos-aws-3nodes"
+  orchestrator:
+    host: "127.0.0.1"
+    port: 8001
+  nodes:
+    - id: "node-large"
+      host: "127.0.0.1"
+      port: 8000
+      endpoint: "http://<NODE_LARGE_HOST>:8000"
+      local: true
+      description: "Large node / orchestrator / control-plane leader candidate"
+    - id: "node-medium"
+      host: "<NODE_MEDIUM_HOST>"
+      port: 8000
+      endpoint: "http://<NODE_MEDIUM_HOST>:8000"
+      ssh_host: "<NODE_MEDIUM_HOST>"
+      description: "Medium node"
+    - id: "node-small"
+      host: "<NODE_SMALL_HOST>"
+      port: 8000
+      endpoint: "http://<NODE_SMALL_HOST>:8000"
+      ssh_host: "<NODE_SMALL_HOST>"
+      description: "Small node"
+
+rl:
+  enabled: true
+  algorithm: "auto"
+  learning_rate: 0.1
+  discount_factor: 0.95
+  exploration_rate: 0.15
+  exploration_decay: 0.995
+  exploration_min: 0.01
+  algorithms:
+    qlearning:
+      learning_rate: 0.1
+      discount_factor: 0.95
+      epsilon: 0.15
+      epsilon_decay: 0.995
+      epsilon_min: 0.01
+    dqn:
+      learning_rate: 0.001
+      discount_factor: 0.99
+      epsilon: 1.0
+      epsilon_decay: 0.995
+      epsilon_min: 0.05
+    ppo:
+      learning_rate: 0.0003
+      discount_factor: 0.99
+      epsilon: 0.0
+      epsilon_decay: 1.0
+      epsilon_min: 0.0
+
+default_job:
+  service_type: "geo_heatmap"
+  coverage_min: 0.5
+  coverage_max: 0.9
+  sample_min: 0.3
+  sample_max: 0.8
+  freshness_min: 30
+  freshness_max: 120
+  algorithm: "auto"
+  tenant_id: "default"
+  priority: "standard"
+  resource_limits:
+    cpu_max_percent: 80
+    memory_max_percent: 85
+
+benchmark:
+  poll_interval_seconds: 5
+  iterations: 72
+  seeds: [11, 22, 33, 44, 55]
+  algorithms: ["qlearning", "dqn", "ppo"]
+  job:
+    service_type: "geo_heatmap"
+    coverage_min: 0.7
+    coverage_max: 1.0
+    sample_min: 0.7
+    sample_max: 1.0
+    freshness_min: 5
+    freshness_max: 30
+    tenant_id: "benchmark"
+    priority: "standard"
+    resource_limits:
+      cpu_max_percent: 80
+      memory_max_percent: 85
+
+orchestration:
+  poll_interval_seconds: 5.0
+  timeout_seconds: 5.0
+  max_health_failures: 3
+  parallel_requests: 10
+  max_jobs_per_node: 3
+  max_parallel_polls: 16
+  max_parallel_pushes: 16
+  iteration_budget_ms: 2000.0
+  deployment_profile: "aws"
+  control_plane:
+    enabled: true
+    lease_seconds: 15
+    heartbeat_interval_seconds: 5.0
+    nats_enabled: true
+    nats_url: "nats://127.0.0.1:4222"
+    nats_subject_prefix: "argos.control"
+
+cost_model:
+  cpu_cost_per_hour: 0.0464
+  memory_cost_per_gb_hour: 0.0050
+  network_cost_per_gb: 0.0200
+  storage_cost_per_gb_month: 0.1000
+  baseline_memory_gb_per_node: 0.75
+  baseline_storage_gb_per_request: 0.05
+
+live_trial:
+  duration_minutes: 60.0
+  traffic_model: "uniform"
+  random_seed: 20260428
+  job_interval_minutes: 6.0
+  job_interval_min_minutes: 2.0
+  job_interval_max_minutes: 4.0
+  request_duration_mode: "uniform"
+  request_duration_min_minutes: 20.0
+  request_duration_max_minutes: 30.0
+  poll_interval_seconds: 10.0
+  print_every_seconds: 60.0
+  startup_wait_seconds: 30.0
+  tenant_prefix: "live-trial"
+  profiles:
+    - name: "lax-background"
+      payload:
+        service_type: "geo_heatmap"
+        coverage_min: 0.25
+        coverage_max: 0.45
+        sample_min: 0.20
+        sample_max: 0.45
+        freshness_min: 90
+        freshness_max: 180
+        tenant_id: "city-dashboard"
+        priority: "best_effort"
+        algorithm: "auto"
+        resource_limits:
+          cpu_max_percent: 70.0
+          memory_max_percent: 80.0
+    - name: "standard-operations"
+      payload:
+        service_type: "geo_heatmap"
+        coverage_min: 0.45
+        coverage_max: 0.75
+        sample_min: 0.35
+        sample_max: 0.65
+        freshness_min: 30
+        freshness_max: 90
+        tenant_id: "operations"
+        priority: "standard"
+        algorithm: "auto"
+        resource_limits:
+          cpu_max_percent: 80.0
+          memory_max_percent: 85.0
+    - name: "aggressive-incident"
+      payload:
+        service_type: "geo_heatmap"
+        coverage_min: 0.75
+        coverage_max: 1.00
+        sample_min: 0.70
+        sample_max: 1.00
+        freshness_min: 5
+        freshness_max: 30
+        tenant_id: "incident-response"
+        priority: "critical"
+        algorithm: "auto"
+        resource_limits:
+          cpu_max_percent: 85.0
+          memory_max_percent: 88.0
+    - name: "cost-sensitive"
+      payload:
+        service_type: "geo_heatmap"
+        coverage_min: 0.33
+        coverage_max: 0.67
+        sample_min: 0.25
+        sample_max: 0.55
+        freshness_min: 60
+        freshness_max: 150
+        cost_budget: 0.05
+        tenant_id: "planning"
+        priority: "standard"
+        algorithm: "auto"
+        resource_limits:
+          cpu_max_percent: 65.0
+          memory_max_percent: 78.0
+    - name: "short-burst"
+      payload:
+        service_type: "geo_heatmap"
+        coverage_min: 0.60
+        coverage_max: 0.95
+        sample_min: 0.60
+        sample_max: 0.90
+        freshness_min: 10
+        freshness_max: 45
+        tenant_id: "mobility"
+        priority: "standard"
+        algorithm: "auto"
+        resource_limits:
+          cpu_max_percent: 82.0
+          memory_max_percent: 86.0
+
+paths:
+  runs_dir: "data/runs"
+  persistence_dir: "data/persistence"
+  evaluation_dir: "data/evaluation"

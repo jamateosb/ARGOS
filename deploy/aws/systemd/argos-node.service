@@ -1,0 +1,16 @@
+[Unit]
+Description=ARGOS worker node API
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/argos/ARGOS/src
+EnvironmentFile=-/etc/argos-node.env
+ExecStart=/opt/argos/ARGOS/.venv/bin/uvicorn argos.node:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

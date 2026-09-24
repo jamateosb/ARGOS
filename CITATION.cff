@@ -1,0 +1,42 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "ARGOS: Reinforcement Learning-Driven Multidimensional Elasticity for Service Orchestration in the Computing Continuum"
+version: 1.0.0
+license: MIT
+repository-code: "https://github.com/jamateosb/ARGOS"
+abstract: >-
+  ARGOS (Adaptive Reinforcement Learning-Driven Governance for Orchestrated
+  Services) is an orchestrator for analytics services on heterogeneous
+  computing-continuum nodes. It admits requests with accepted ranges for
+  coverage, sample, and freshness, and adapts each admitted request within
+  those ranges under observed resource pressure, using learned (Q-learning,
+  DQN, PPO) or non-learning controllers. The repository contains the source
+  code, the evaluation configuration and scripts, the result tables, and the
+  code that generates every figure.
+keywords:
+  - computing continuum
+  - multidimensional elasticity
+  - reinforcement learning
+  - service orchestration
+  - admission control
+  - edge computing
+authors:
+  - family-names: Mateos-Bravo
+    given-names: Javier
+    affiliation: "University of Extremadura, Spain"
+  - family-names: Laso
+    given-names: Sergio
+    affiliation: "University of Extremadura, Spain"
+  - family-names: Herrera
+    given-names: Juan Luis
+    affiliation: "University of Extremadura, Spain"
+  - family-names: Murturi
+    given-names: Ilir
+    affiliation: "University of Prishtina, Kosova"
+  - family-names: Frangoudis
+    given-names: Pantelis
+    affiliation: "TU Wien, Austria"
+  - family-names: Dustdar
+    given-names: Schahram
+    affiliation: "TU Wien, Austria"
