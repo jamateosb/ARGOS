@@ -67,9 +67,11 @@ request, masks actions that would have no effect or would add load under
 pressure, lets the request's policy choose among the remaining seven actions
 (`hold` and one increase and one decrease per dimension), applies the change
 within the contract bounds, pushes new node plans when the placement changes,
-and records every decision with its reward components. Target coverage maps to
-a node count of ⌈coverage × N⌉, so on a three-node cluster realized coverage
-can only be 1/3, 2/3, or 1. [docs/architecture.md](docs/architecture.md)
+and records every decision with its reward components. Realized coverage is the
+number of assigned nodes divided by N, so on a three-node cluster it can only be
+1/3, 2/3, or 1; ARGOS assigns the node count derived from the target, clamped to
+the counts whose realized coverage lies inside the accepted range, and rejects
+requests whose range contains none. [docs/architecture.md](docs/architecture.md)
 describes the components, the state, the reward, and where each lives in the
 code.
 
@@ -261,11 +263,9 @@ about 10 seconds and needs no network or running nodes.
 - The evaluation uses a cluster of three heterogeneous nodes, and the results
   describe ARGOS at that scale. The architecture is designed for larger
   continuum deployments, but larger topologies have not been evaluated yet.
-- With three nodes, realized coverage can only be 1/3, 2/3, or 1. Every
-  coverage violation recorded in the evaluation is an **upper-bound**
-  violation: the node count ⌈coverage × N⌉ rounds the target up, so realized
-  coverage exceeds the contract maximum (for example 2/3 against a maximum of
-  0.45). No coverage event fell below a contract minimum.
+- With three nodes, realized coverage can only be 1/3, 2/3, or 1, so a coverage
+  range must contain one of these values to be admitted, and the controller's
+  coverage target selects among at most three placements.
 - The workload is one urban-mobility heatmap service over simulated
   trajectories, with five workload profiles.
 - New campaigns depend on the machines and their real telemetry, so their

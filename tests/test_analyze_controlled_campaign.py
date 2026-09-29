@@ -283,3 +283,50 @@ def test_index_compatibility_rejects_mixed_commits(tmp_path):
 
     with pytest.raises(RuntimeError, match="different git_commit"):
         _validate_index_compatibility(indexes)
+
+
+def test_import_trained_policies_reuses_verified_artifacts(tmp_path, monkeypatch):
+    monkeypatch.setattr(campaign, "ROOT", tmp_path)
+    index_dir = tmp_path / "data" / "campaigns" / "source"
+    index_dir.mkdir(parents=True)
+    artifact = tmp_path / "policy.pt"
+    artifact.write_bytes(b"weights")
+    protocol = {"train_iterations": 2048, "input_schedule": "2,16,64,4", "schedule_segment_iterations": 16}
+    index = {
+        "campaign_id": "source",
+        "completed_at": "2026-07-20T00:00:00+00:00",
+        "runtime": "thread",
+        "git_commit": "abc",
+        **protocol,
+        "runs": [
+            {
+                "role": "train",
+                "profile": "p",
+                "seed": 11,
+                "algorithm": "dqn",
+                "session_id": "s",
+                "policy_artifact": str(artifact),
+                "policy_sha256": campaign._sha256_file(artifact),
+                "policy_fingerprint_after": "fp",
+            }
+        ],
+    }
+    index_path = index_dir / "campaign_index.json"
+    index_path.write_text(json.dumps(index), encoding="utf-8")
+
+    trained, sources = campaign._import_trained_policies(
+        [index_path], runtime="thread", profiles=["p"], seeds=[11], learners=["dqn"], protocol=protocol
+    )
+    assert trained == {("p", 11, "dqn"): (artifact, "fp")}
+    assert sources[0]["campaign_id"] == "source"
+
+    artifact.write_bytes(b"tampered")
+    with pytest.raises(RuntimeError, match="hash mismatch"):
+        campaign._import_trained_policies(
+            [index_path], runtime="thread", profiles=["p"], seeds=[11], learners=["dqn"], protocol=protocol
+        )
+    with pytest.raises(RuntimeError, match="lack trained policies"):
+        artifact.write_bytes(b"weights")
+        campaign._import_trained_policies(
+            [index_path], runtime="thread", profiles=["p"], seeds=[11, 22], learners=["dqn"], protocol=protocol
+        )

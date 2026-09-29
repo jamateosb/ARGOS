@@ -284,6 +284,70 @@ def _import_fixed_selections(
     return imported
 
 
+def _import_trained_policies(
+    index_paths: list[Path],
+    *,
+    runtime: str,
+    profiles: list[str],
+    seeds: list[int],
+    learners: list[str],
+    protocol: dict[str, Any],
+) -> tuple[dict[tuple[str, int, str], tuple[Path, str]], list[dict[str, Any]]]:
+    """Reuse frozen policies trained by earlier campaigns instead of retraining.
+
+    Every source index must be complete, use the same runtime and training
+    protocol, and every reused artifact must still match its recorded SHA-256.
+    """
+    campaigns_root = (ROOT / "data" / "campaigns").resolve()
+    trained: dict[tuple[str, int, str], tuple[Path, str]] = {}
+    sources: list[dict[str, Any]] = []
+    for index_path in index_paths:
+        resolved_index = index_path.resolve()
+        if not resolved_index.is_relative_to(campaigns_root):
+            raise RuntimeError(f"Policy source must live under {campaigns_root}: {index_path}")
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+        if not payload.get("completed_at"):
+            raise RuntimeError(f"Policy source campaign is incomplete: {index_path}")
+        if payload.get("runtime") != runtime:
+            raise RuntimeError(f"Policy source runtime {payload.get('runtime')!r} differs from {runtime!r}: {index_path}")
+        mismatched = {key: (payload.get(key), value) for key, value in protocol.items() if payload.get(key) != value}
+        if mismatched:
+            raise RuntimeError(f"Policy source uses a different training protocol: {mismatched}")
+        for row in payload.get("runs", []):
+            if row.get("role") != "train":
+                continue
+            key = (str(row["profile"]), int(row["seed"]), str(row["algorithm"]))
+            if key[0] not in profiles or key[1] not in seeds or key[2] not in learners:
+                continue
+            artifact = Path(str(row.get("policy_artifact") or ""))
+            fingerprint = str(row.get("policy_fingerprint_after") or "")
+            if not artifact.is_file() or not fingerprint:
+                raise RuntimeError(f"Policy source record lacks an artifact or fingerprint: {row.get('session_id')}")
+            if _sha256_file(artifact) != str(row.get("policy_sha256") or ""):
+                raise RuntimeError(f"Policy artifact hash mismatch: {artifact}")
+            if key in trained and trained[key][0] != artifact:
+                raise RuntimeError(f"Conflicting policy sources for {key}")
+            trained[key] = (artifact, fingerprint)
+        sources.append(
+            {
+                "campaign_id": payload.get("campaign_id", ""),
+                "campaign_index": str(resolved_index),
+                "campaign_index_sha256": _sha256_file(resolved_index),
+                "git_commit": payload.get("git_commit", ""),
+            }
+        )
+    missing = [
+        (profile, seed, learner)
+        for profile in profiles
+        for seed in seeds
+        for learner in learners
+        if (profile, seed, learner) not in trained
+    ]
+    if missing:
+        raise RuntimeError(f"Policy sources lack trained policies for {missing}")
+    return trained, sources
+
+
 def _amend_seed_schedule(index: dict[str, Any], seeds: list[int]) -> bool:
     previous = [int(seed) for seed in index.get("seeds", [])]
     if previous == seeds:
@@ -527,6 +591,13 @@ def main() -> None:
     parser.add_argument("--evaluation-input-schedule", default="3,12,48,6")
     parser.add_argument("--schedule-segment-iterations", type=int, default=16)
     parser.add_argument("--fixed-selection-index", action="append", type=Path, default=[])
+    parser.add_argument(
+        "--policy-source-index",
+        action="append",
+        type=Path,
+        default=[],
+        help="Reuse the trained policies of these completed campaigns (same runtime and protocol) instead of training",
+    )
     parser.add_argument("--run-attempts", type=int, default=3)
     parser.add_argument("--amend-seeds", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -648,7 +719,24 @@ def main() -> None:
         _write_index(index_path, index)
 
     trained: dict[tuple[str, int, str], tuple[Path, str]] = {}
-    for profile in profiles:
+    if args.policy_source_index:
+        trained, policy_sources = _import_trained_policies(
+            args.policy_source_index,
+            runtime=args.runtime,
+            profiles=[profile.name for profile in profiles],
+            seeds=seeds,
+            learners=learners,
+            protocol={
+                "train_iterations": args.train_iterations,
+                "input_schedule": args.input_schedule,
+                "schedule_segment_iterations": args.schedule_segment_iterations,
+            },
+        )
+        if index.get("policy_sources") not in (None, policy_sources):
+            raise RuntimeError("Policy sources differ from the existing campaign index")
+        index["policy_sources"] = policy_sources
+        _write_index(index_path, index)
+    for profile in profiles if not args.policy_source_index else []:
         for seed in seeds:
             for learner in learners:
                 record = _run(

@@ -194,6 +194,8 @@ class TestRLAgentFactory:
             )
         )
         loop.register_node("node-1", "http://node-1")
+        loop.register_node("node-2", "http://node-2")
+        loop.register_node("node-3", "http://node-3")
         request = AnalyticsRequest(request_id="req-dqn", algorithm="dqn")
         loop.submit_request(request)
 
@@ -258,6 +260,29 @@ class TestRLAgentFactory:
 
             with pytest.raises(ValueError, match="Incompatible state schema"):
                 agent.load(str(path))
+
+    def test_qlearning_accepts_checkpoints_saved_under_the_former_schema_names(self):
+        """Checkpoints saved before the rename carry the same schemas under meo.* identifiers."""
+        import json
+
+        agent, _ = create_agent(
+            algorithm="qlearning",
+            learning_rate=0.1,
+            discount_factor=0.9,
+            exploration_rate=0.0,
+            exploration_decay=0.95,
+            min_exploration_rate=0.01,
+            seed=21,
+        )
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "renamed.json"
+            agent.save(str(path))
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["policy_metadata"]["state_schema_version"] = "meo.mdp.v4"
+            payload["policy_metadata"]["action_schema_version"] = "meo.actions.masked-discrete.v2"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            agent.load(str(path))
 
     @pytest.mark.skipif(not is_torch_available(), reason="torch optional backend not installed")
     @pytest.mark.parametrize("algorithm", ["dqn", "ppo"])

@@ -13,7 +13,7 @@ Features:
 - Integrated RL agent for adaptive configuration decisions
 - Per-request metrics tracking
 - Full persistence of decisions, errors, and state changes
-- Proper node assignment with ceiling rounding
+- Node assignment that keeps realized coverage inside the contract
 
 Future enhancements:
 - Auto-deactivate idle nodes: After N iterations without work, send POST /deactivate
@@ -52,6 +52,7 @@ from argos.domain.numeric_contract import (
     breaches_upper_bound,
     canonical_contract_mean,
     canonical_contract_value,
+    feasible_node_range,
 )
 from argos.orchestrator.control_plane import (
     LeaderElectionService,
@@ -508,18 +509,39 @@ class OrchestrationLoop:
     def _active_node_count(self) -> int:
         return len([n for n in self._nodes.values() if n.is_active])
 
+    def _feasible_node_range(self, request: AnalyticsRequest) -> Optional[tuple[int, int]]:
+        """Node counts whose realized coverage (k / active nodes) stays inside the contract."""
+        return feasible_node_range(
+            request.coverage_range,
+            self._active_node_count(),
+            request.placement_limits.max_nodes,
+        )
+
     def _minimum_node_count(self, request: AnalyticsRequest) -> int:
         active_nodes = self._active_node_count()
         if active_nodes <= 0:
             return 1
+        feasible = self._feasible_node_range(request)
+        if feasible is not None:
+            return feasible[0]
         min_count = max(1, math.ceil(active_nodes * request.coverage_range[0]))
         if request.placement_limits.max_nodes is not None:
             min_count = min(min_count, request.placement_limits.max_nodes)
         return min_count
 
     def _desired_node_count(self, request: AnalyticsRequest, config: EffectiveConfiguration) -> int:
+        """Node count for the target coverage, projected onto the contract-feasible counts.
+
+        The target maps to ceil(target * N) nodes; the result is clamped to the
+        feasible range so that realized coverage never leaves the accepted range.
+        Without a feasible count (possible only after nodes are lost at run time,
+        since admission rejects such requests), the target-derived count is kept.
+        """
         active_nodes = self._active_node_count()
         desired = max(1, math.ceil(active_nodes * config.target_coverage))
+        feasible = self._feasible_node_range(request)
+        if feasible is not None:
+            return min(max(desired, feasible[0]), feasible[1])
         if request.placement_limits.max_nodes is not None:
             desired = min(desired, request.placement_limits.max_nodes)
         return desired
@@ -586,6 +608,8 @@ class OrchestrationLoop:
         required = max(1, math.ceil(active_nodes * request.coverage_range[0]))
         if request.placement_limits.max_nodes is not None and request.placement_limits.max_nodes < required:
             return "placement_limits_below_coverage_min"
+        if self._feasible_node_range(request) is None:
+            return "coverage_range_unreachable_with_active_nodes"
         return None
 
     def _admit_request(
@@ -897,7 +921,7 @@ class OrchestrationLoop:
         Submit a new analytics request.
 
         The orchestrator negotiates an effective configuration within
-        the requested ranges and assigns nodes using ceiling rounding.
+        the requested ranges and assigns a contract-feasible number of nodes.
         """
         if not request.validate():
             if self._persistence:
@@ -1756,14 +1780,8 @@ class OrchestrationLoop:
         ):
             return None, rl_decision
 
-        # Recalculate node count with ceiling and set total_nodes for dynamic user assignment
-        total_nodes = len([n for n in self._nodes.values() if n.is_active])
-        new_config.assigned_node_count = max(1, math.ceil(total_nodes * new_config.target_coverage))
-        if request.placement_limits.max_nodes is not None:
-            new_config.assigned_node_count = min(
-                new_config.assigned_node_count,
-                request.placement_limits.max_nodes,
-            )
+        # Recalculate the contract-feasible node count and set total_nodes for dynamic user assignment
+        new_config.assigned_node_count = self._desired_node_count(request, new_config)
         new_config.total_nodes = len(self._nodes)  # Total registered nodes for data distribution
         new_config.cpu_max_percent = request.resource_limits.cpu_max_percent
         new_config.memory_max_percent = request.resource_limits.memory_max_percent

@@ -326,6 +326,8 @@ def test_initial_operating_point_quantiles_are_applied_to_config_and_environment
         )
     )
     loop.register_node("node-1", "http://node-1")
+    loop.register_node("node-2", "http://node-2")
+    loop.register_node("node-3", "http://node-3")
     request = AnalyticsRequest(
         request_id="fixed-point",
         coverage_range=(0.4, 0.8),

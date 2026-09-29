@@ -33,6 +33,14 @@ StateType = TypeVar("StateType", bound=Hashable)
 ActionType = TypeVar("ActionType")
 
 
+# Checkpoints saved before the project was renamed carry the same state and
+# action schemas under their former identifiers.
+SCHEMA_ALIASES = {
+    "meo.mdp.v4": "argos.mdp.v4",
+    "meo.actions.masked-discrete.v2": "argos.actions.masked-discrete.v2",
+}
+
+
 @dataclass(frozen=True)
 class RLConfig:
     """
@@ -246,8 +254,8 @@ class RLAgent(ABC, Generic[StateType, ActionType]):
 
     def validate_policy_metadata(self, metadata: dict[str, Any]) -> None:
         """Reject checkpoints built for incompatible state or action schemas."""
-        state_schema = metadata.get("state_schema_version")
-        action_schema = metadata.get("action_schema_version")
+        state_schema = SCHEMA_ALIASES.get(metadata.get("state_schema_version"), metadata.get("state_schema_version"))
+        action_schema = SCHEMA_ALIASES.get(metadata.get("action_schema_version"), metadata.get("action_schema_version"))
         if state_schema != self.config.state_schema_version:
             raise ValueError(
                 f"Incompatible state schema: checkpoint={state_schema!r}, "

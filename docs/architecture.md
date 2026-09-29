@@ -24,10 +24,10 @@ the code. The references below name files and functions.
    freshness, tenant, priority, CPU and memory caps, placement limits, and an
    optional cost budget.
 2. The contract is validated and converted to a midpoint target configuration.
-3. The orchestrator computes the minimum node count required by the lower
-   coverage bound. With capacity available the request is placed; if it is
-   feasible but capacity is exhausted it is queued; if its placement limits make
-   the minimum impossible it is rejected with a reason.
+3. The orchestrator computes the feasible node counts of the coverage range
+   (see [Placement and coverage](#placement-and-coverage)). If there are none,
+   the request is rejected with a reason. With capacity for the smallest
+   feasible count the request is placed; if capacity is exhausted it is queued.
 4. Each admitted request gets its own environment and policy. When a queued
    request is admitted later, its controller is created at admission time; if a
    frozen policy was registered for it while it waited, that policy is loaded
@@ -88,15 +88,17 @@ component is persisted with each decision (`reward_components` in
 
 ## Placement and coverage
 
-The deployment manager assigns ⌈coverage × N⌉ nodes (at least one, within the
-request's placement limits), where N is the number of active nodes. Realized
-coverage is the number of assigned nodes divided by N. With N = 3 it can only be
-1/3, 2/3, or 1, so the realized value often differs from the continuous target.
-Because the node count rounds up, realized coverage can exceed a contract
-maximum (a target of 0.35 needs 2 nodes, realized 2/3, above a maximum of 0.45).
-ARGOS records each such epoch as a coverage violation with `bound: "maximum"`.
-All coverage violations recorded in the reference evaluation are of this kind;
-none has `bound: "minimum"`.
+Realized coverage is the number of assigned nodes k divided by the number of
+active nodes N, so with N = 3 it can only be 1/3, 2/3, or 1. For a contract
+[c_min, c_max] the feasible node counts are the integers k with
+c_min <= k/N <= c_max, 1 <= k <= N, and k within the request's placement limits
+(`feasible_node_range` in `src/argos/domain/numeric_contract.py`). The
+deployment manager maps the controller's target coverage to ⌈target × N⌉ nodes
+and clamps that count into the feasible range, so realized coverage never
+leaves the accepted range while the target still selects among several
+feasible counts when the range allows it (for example 1 or 2 nodes for
+[0.33, 0.67]). A request whose range contains no feasible count on the active
+nodes is rejected at admission (`coverage_range_unreachable_with_active_nodes`).
 
 ## Runtimes: thread and process
 

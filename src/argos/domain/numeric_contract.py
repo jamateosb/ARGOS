@@ -51,6 +51,32 @@ def within_contract_bounds(
     return not (high is not None and breaches_upper_bound(observed, high))
 
 
+def feasible_node_range(
+    coverage_range: tuple[float, float],
+    active_nodes: int,
+    max_nodes: Optional[int] = None,
+) -> Optional[tuple[int, int]]:
+    """Return the node counts whose realized coverage satisfies the contract.
+
+    Realized coverage is ``k / active_nodes``. The result is the inclusive range
+    ``(k_min, k_max)`` of node counts with ``c_min <= k / N <= c_max`` (using the
+    contract tolerance), ``1 <= k <= N`` and ``k <= max_nodes``, or ``None``
+    when no such count exists.
+    """
+    if active_nodes <= 0:
+        return None
+    low, high = map(float, coverage_range)
+    upper = active_nodes if max_nodes is None else min(active_nodes, int(max_nodes))
+    feasible = [
+        k
+        for k in range(1, upper + 1)
+        if not breaches_lower_bound(k / active_nodes, low) and not breaches_upper_bound(k / active_nodes, high)
+    ]
+    if not feasible:
+        return None
+    return feasible[0], feasible[-1]
+
+
 def canonical_contract_value(
     value: float,
     bounds: Optional[tuple[float, float]] = None,
