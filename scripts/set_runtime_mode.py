@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -80,10 +81,12 @@ def set_node_runtime(endpoint: str, runtime: str, *, ssh_key: Path, ssh_user: st
 def verify_endpoint(endpoint: str, runtime: str, *, timeout_seconds: float) -> dict[str, str]:
     deadline = time.monotonic() + timeout_seconds
     url = endpoint.rstrip("/") + "/metrics"
+    token = os.getenv("STATUS_API_TOKEN", "").strip()
+    headers = {"X-API-Key": token} if token else {}
     last_error = ""
     while time.monotonic() <= deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as response:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=3.0) as response:
                 payload = json.loads(response.read().decode("utf-8"))
             mode = str(payload.get("runtime_mode") or "")
             if mode == runtime:
