@@ -213,7 +213,6 @@ def _trial_command(
         scenario,
         "--runtime-mode",
         args.runtime,
-        "--no-generate-evidence",
     ]
     if variant != "static":
         command.append("--require-frozen-policy")
