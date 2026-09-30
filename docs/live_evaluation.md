@@ -52,24 +52,33 @@ reported as tail-censored rather than as evaluated.
 | Item | Value |
 |---|---:|
 | Trials | 30 |
-| Decision epochs | 58,285 |
-| Requests submitted | 693 |
-| Evaluated requests (at least one frozen decision) | 369 |
+| Decision epochs | 62,976 |
+| Requests submitted | 692 |
+| Evaluated requests (at least one frozen decision) | 393 |
 | Tail-censored requests | 2 |
-| Violation events | 27,145 |
-| of which coverage (all above the contract maximum) | 27,130 |
-| of which freshness | 15 |
-| of which sample, CPU, memory | 0 |
+| Violation events | 21 |
+| of which freshness | 21 |
+| of which coverage, sample, CPU, memory | 0 |
 
-**Coverage violations.** All 27,130 coverage events are above the contract
-maximum; none is below the contract minimum. With three nodes, realized
-coverage is 1/3, 2/3, or 1, and the node count ⌈coverage × 3⌉ rounds the
-controller's target up: a lax-background request with a target inside
-[0.25, 0.45] that receives two nodes realizes 2/3. In every event the assigned
-node count equals the desired node count, so the events come from placement
-granularity, not from a shortage of nodes. Controllers that hold higher
-coverage targets cross into the next node count more often and therefore
-record more events.
+| Regime | Static | DQN | PPO |
+|---|---:|---:|---:|
+| Realistic: mean decision reward | 0.237 | 0.458 | 0.400 |
+| Realistic: delta vs Static, 95 % interval (wins of 5) | | +0.221 [0.112, 0.330] (5) | +0.163 [0.110, 0.216] (5) |
+| Concurrency: mean decision reward | −0.016 | 0.036 | 0.094 |
+| Concurrency: delta vs Static, 95 % interval (wins of 5) | | +0.052 [−0.067, 0.172] (3) | +0.110 [0.039, 0.180] (5) |
+
+**Coverage.** With three nodes, realized coverage is 1/3, 2/3, or 1. The
+node count is ⌈coverage × 3⌉ restricted to the counts whose realized coverage
+lies inside the contract range, so no coverage violation is recorded. The 21
+freshness events occur in the concurrency regime (3 under DQN, 18 under PPO).
+
+**Admission.** In the realistic regime every request is admitted on arrival
+and at most six are active. In the concurrency regime about 46 of the 180
+requests per variant are admitted on arrival, the rest wait in the queue, and
+the active set saturates at nine to ten requests. The last scheduled arrival of
+live seed 1004 (realistic) falls about 4 s before the end of the trial, so it is
+submitted in the DQN and PPO trials (and tail-censored) but not in the static
+trial; the evaluated requests are the same in all three.
 
 ## Running a campaign
 

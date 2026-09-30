@@ -63,6 +63,14 @@ confirmatory p-values are reported.
 The 300 frozen evaluations contain 19,200 decisions. All 150 learned-policy
 evaluations kept the fingerprint of their trained policy.
 
+**Reference evidence.** The reference tuning and frozen-evaluation runs use the
+contract-feasible placement rule described in
+[architecture.md](architecture.md). The learned policies they evaluate were
+trained in earlier campaigns with the same protocol, before that rule was
+introduced, and were reused unchanged: the runner verified each artifact's
+SHA-256 hash and parameter fingerprint against its training record before
+loading it (`--policy-source-index`, below).
+
 ## Running a campaign
 
 The campaign runner trains, tunes, and evaluates in one pass, validates every
@@ -97,7 +105,9 @@ The remaining parameters default to the protocol above: 2048 training
 decisions, 64 tuning and evaluation decisions, training, evaluation, and tuning
 seeds, 1 s cadence, schedules `2,16,64,4` and `3,12,48,6`, and 16 decisions per
 phase. `--resume` continues an interrupted campaign; `--dry-run` prints the
-commands without running them. One runtime takes about 49 hours (primary about
+commands without running them. `--policy-source-index <campaign_index.json>`
+skips training and evaluates the verified policies of an earlier campaign with
+the same runtime, profiles, seeds, and training protocol. One runtime takes about 49 hours (primary about
 10 hours, generalization about 39 hours).
 
 ## Analysis

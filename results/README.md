@@ -17,7 +17,7 @@ results/
 
 | Quantity | Definition |
 |---|---|
-| Reward per decision | Mean of the per-decision reward (clipped to [-1, 1]) over the decisions of a run. In the controlled evaluation the experimental unit is the evaluation seed: rewards are averaged over the five profiles within each seed. |
+| Reward per decision | Mean of the per-decision reward (clipped to [-1, 1]; the clip never binds in the reference evaluation, see the reward-clipping tables) over the decisions of a run. In the controlled evaluation the experimental unit is the evaluation seed: rewards are averaged over the five profiles within each seed. |
 | Paired delta | Controller minus comparator, computed per evaluation seed (controlled) or per live seed (live), on identical seeds and traces. |
 | 95 % interval | Two-sided Student-t interval over the five paired seed values (4 degrees of freedom). No confirmatory p-values are reported: with five pairs the exact Wilcoxon signed-rank test cannot give p < 0.0625. |
 | Spatial fidelity | `1 - 0.5 * sum_i |p_i - q_i|` between the normalized cell frequencies of the sampled heatmap (p) and of the full-sample reference heatmap (q) of the same partitions. It reflects sampling only, not coverage or freshness. A value of 0.94 means the sampled spatial distribution is 94 % similar to the full-sample one in total-variation terms; it does not mean that 94 % of the city is covered. |
@@ -41,6 +41,8 @@ results/
 | `controlled_paired_reward_deltas.csv` | runtime × controller × comparator × seed | paired seed-level deltas against Static, Threshold, and Best-fixed |
 | `controlled_paired_reward_summary.csv` | runtime × controller × comparator | mean paired delta, 95 % interval, wins, ties, losses |
 | `controlled_violation_bounds.csv` | run × metric × bound | violation events by bound direction; `bound_source` is `recorded` when the event stores its bound and `derived` (measured value against limit) for CPU and memory caps |
+| `controlled_reward_clipping.csv` | frozen evaluation run (300) | decisions, decisions whose unclipped reward (rebuilt from the persisted reward components) falls below −1 or above 1, unclipped minimum and maximum, clipped and unclipped reward per decision |
+| `controlled_reward_clipping_sensitivity.csv` | runtime × controller × comparator | paired delta, 95 % interval, and wins computed with the clipped and with the unclipped reward; `conclusion_changed` flags a change of sign, of interval significance, or of wins |
 
 ### Live (`live/tables/`)
 
@@ -53,6 +55,8 @@ results/
 | `live_reward_timeline.csv` | trial × half-minute | cumulative decision reward |
 | `live_action_counts.csv` | trial × action | count and share of each action |
 | `live_violation_bounds.csv` | trial × profile × metric × bound | violation events by workload profile and bound direction |
+| `live_reward_clipping.csv` | trial (30) | as `controlled_reward_clipping.csv` |
+| `live_reward_clipping_sensitivity.csv` | regime × learned variant | as `controlled_reward_clipping_sensitivity.csv`, against Static |
 
 ## Figures
 
@@ -78,7 +82,7 @@ Best-fixed is hatched to mark it as an offline-selected reference.
 | `controlled_fidelity_vs_duty` | Mean spatial fidelity against mean service duty per controller (25 runs each); the y axis starts at 0.90 to separate the controllers | `controlled_runs.csv` |
 | `controlled_resource_pressure` | Mean over 25 runs of the per-run cluster CPU and memory p95, thread (plain) and process (dotted) | `controlled_runs.csv` |
 | `controlled_action_frequency` | Share of frozen decisions per action, pooled over profiles and seeds | `controlled_action_counts.csv` |
-| `coverage_violations_by_profile` | Coverage violation events above the contract maximum by profile, controlled (both runtimes) and live (both regimes); the titles report the number of events below a contract minimum, which is 0 in both stages | `controlled_violation_bounds.csv`, `live_violation_bounds.csv` |
+| `coverage_violations_by_profile` | Coverage violation events above the contract maximum by profile, controlled (both runtimes) and live (both regimes); the titles report the number of events below a contract minimum. With contract-feasible placement the reference evaluation records no coverage event in either direction | `controlled_violation_bounds.csv`, `live_violation_bounds.csv` |
 | `live_paired_fidelity_delta` | Spatial-fidelity delta of DQN and PPO against Static per live seed, with the mean and its Student-t 95 % interval | `live_paired_deltas.csv` |
 | `live_admission_outcomes` | Requests submitted, admitted on arrival, queued on arrival, and evaluated, summed over the five trials of each variant | `live_runs.csv` |
 | `live_cumulative_reward` | Cumulative decision reward over trial time, mean of five paired seeds | `live_reward_timeline.csv` |
@@ -89,15 +93,22 @@ All values can be recomputed from the tables above.
 
 | Controlled | Thread | Process |
 |---|---:|---:|
-| Mean reward per decision: Static / Threshold / Q-learning | 0.222 / 0.006 / 0.177 | 0.191 / −0.055 / 0.148 |
-| Mean reward per decision: DQN / PPO / Best-fixed | 0.398 / 0.361 / 0.527 | 0.370 / 0.342 / 0.512 |
-| DQN − Static (wins of 5) | +0.176 (5) | +0.179 (5) |
-| PPO − Static (wins of 5) | +0.139 (5) | +0.151 (5) |
-| DQN − Best-fixed (wins of 5) | −0.129 (0) | −0.142 (0) |
+| Mean reward per decision: Static / Threshold / Q-learning | 0.229 / 0.456 / 0.205 | 0.227 / 0.461 / 0.189 |
+| Mean reward per decision: DQN / PPO / Best-fixed | 0.376 / 0.390 / 0.544 | 0.368 / 0.398 / 0.549 |
+| DQN − Static (wins of 5) | +0.148 (5) | +0.141 (5) |
+| PPO − Static (wins of 5) | +0.161 (5) | +0.170 (5) |
+| DQN − Threshold (wins of 5) | −0.079 (0) | −0.093 (1) |
+| PPO − Threshold (wins of 5) | −0.066 (1) | −0.063 (1) |
+| DQN − Best-fixed (wins of 5) | −0.168 (0) | −0.181 (0) |
+| PPO − Best-fixed (wins of 5) | −0.154 (0) | −0.152 (0) |
+| Aggressive-incident only: Threshold / DQN / PPO | 0.006 / 0.320 / 0.255 | 0.035 / 0.330 / 0.268 |
+| Decisions with a clipped reward | 0 of 9,600 | 0 of 9,600 |
 
 | Live | Realistic | Concurrency |
 |---|---:|---:|
-| Mean decision reward: Static / DQN / PPO | 0.236 / 0.497 / 0.409 | −0.034 / 0.085 / 0.069 |
-| DQN − Static, 95 % interval (wins) | +0.261 [0.181, 0.341] (5) | +0.119 [−0.049, 0.287] (4) |
-| PPO − Static, 95 % interval (wins) | +0.173 [0.128, 0.218] (5) | +0.104 [0.046, 0.161] (5) |
-| Coverage violations: Static / DQN / PPO | 2335 / 4246 / 3684 | 4924 / 5525 / 6416 |
+| Mean decision reward: Static / DQN / PPO | 0.237 / 0.458 / 0.400 | −0.016 / 0.036 / 0.094 |
+| DQN − Static, 95 % interval (wins) | +0.221 [0.112, 0.330] (5) | +0.052 [−0.067, 0.172] (3) |
+| PPO − Static, 95 % interval (wins) | +0.163 [0.110, 0.216] (5) | +0.110 [0.039, 0.180] (5) |
+| Coverage violations: Static / DQN / PPO | 0 / 0 / 0 | 0 / 0 / 0 |
+| Freshness violations: Static / DQN / PPO | 0 / 0 / 0 | 0 / 3 / 18 |
+| Decisions with a clipped reward | 0 of 18,011 | 0 of 44,965 |

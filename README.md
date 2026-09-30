@@ -220,7 +220,7 @@ under realistic arrivals (below saturation) and concurrency arrivals
 (overload), on the thread runtime, with five live seeds (1001 to 1005). Each
 seed produces one 30-minute trial per variant with the same arrival trace, for
 30 trials in total. Admission, queueing, and placement stay active in every
-variant. The trials cover 58,285 decision epochs and 369 evaluated requests.
+variant. The trials cover 62,976 decision epochs and 393 evaluated requests.
 Details: [docs/live_evaluation.md](docs/live_evaluation.md).
 
 ## Results
@@ -268,6 +268,11 @@ about 10 seconds and needs no network or running nodes.
   coverage target selects among at most three placements.
 - The workload is one urban-mobility heatmap service over simulated
   trajectories, with five workload profiles.
+- Learned controllers are trained with one active request; the live stage
+  evaluates them frozen with up to eleven concurrent requests. The reference
+  policies were trained before the contract-feasible placement rule and are
+  evaluated frozen under it (see
+  [docs/controlled_evaluation.md](docs/controlled_evaluation.md)).
 - New campaigns depend on the machines and their real telemetry, so their
   numbers will differ in detail from the reference results. The figures and
   numbers in this repository are reproduced exactly from the result tables.
