@@ -8,8 +8,8 @@ First stage of the results pipeline:
 It is normally run through scripts/analyze_results.py.
 
 The script checks that the campaigns are complete and consistent (full design,
-frozen evaluation, rewards that match the decision logs) and refuses to write
-tables otherwise. The repository already contains the tables of the reference
+frozen evaluation, rewards that match the decision logs and their persisted
+components) and refuses to write tables otherwise. The repository already contains the tables of the reference
 evaluation, so this step is only needed after running new campaigns.
 """
 
@@ -59,6 +59,17 @@ ACTIONS = (
 RUNTIMES = ("thread", "process")
 SCENARIOS = ("realistic", "concurrency")
 VARIANTS = ("static", "dqn", "ppo")
+REWARD_PENALTIES = (
+    "resource_penalty",
+    "cost_penalty",
+    "range_penalty_coverage",
+    "range_penalty_sample",
+    "range_penalty_freshness",
+    "resource_overload_penalty",
+    "fairness_penalty",
+    "latency_penalty",
+    "capacity_penalty",
+)
 
 
 def _json(path: Path) -> Any:
@@ -161,6 +172,36 @@ def _mean_ci(values: Iterable[float]) -> tuple[float, float, float]:
 
 
 
+def _raw_rewards(decisions: list[dict[str, Any]], label: str) -> np.ndarray:
+    """Rebuild the unclipped reward of every decision from its persisted components.
+
+    The recorded reward is the raw score clipped to [-1, 1]; a decision whose
+    components do not reproduce it makes the evidence inconsistent.
+    """
+    raw = []
+    for decision in decisions:
+        components = decision["reward_components"]
+        value = float(components["requirement_quality"]) - sum(float(components[key]) for key in REWARD_PENALTIES)
+        if not math.isclose(max(-1.0, min(1.0, value)), float(decision["reward"]), rel_tol=1e-9, abs_tol=1e-9):
+            raise RuntimeError(f"Reward components do not reproduce the recorded reward in {label}")
+        raw.append(value)
+    return np.asarray(raw, dtype=float)
+
+
+def _clipping_row(metadata: dict[str, Any], decisions: list[dict[str, Any]], label: str) -> dict[str, Any]:
+    raw = _raw_rewards(decisions, label)
+    return {
+        **metadata,
+        "decisions": len(raw),
+        "lower_clipped": int((raw < -1.0).sum()),
+        "upper_clipped": int((raw > 1.0).sum()),
+        "raw_min": float(raw.min()) if raw.size else math.nan,
+        "raw_max": float(raw.max()) if raw.size else math.nan,
+        "reward_per_step": _mean(float(decision["reward"]) for decision in decisions),
+        "raw_reward_per_step": _mean(raw),
+    }
+
+
 def _last_request_contract(rows: list[dict[str, Any]]) -> dict[str, Any]:
     if not rows:
         raise RuntimeError("A controlled run has no request contract")
@@ -179,7 +220,7 @@ def _position(value: Any, lower: Any, upper: Any, *, reverse: bool = False) -> f
 
 def _load_controlled(
     indexes: tuple[Path, ...],
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, list[dict[str, Any]]]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, list[dict[str, Any]]]:
     index_records = [(path, _json(path)) for path in indexes]
     commits = {str(index.get("git_commit")) for _, index in index_records}
     if len(commits) != 1 or "" in commits:
@@ -220,6 +261,7 @@ def _load_controlled(
     decision_rows: list[dict[str, Any]] = []
     action_rows: list[dict[str, Any]] = []
     violation_rows: list[dict[str, Any]] = []
+    clipping_rows: list[dict[str, Any]] = []
 
     for record in sorted(
         all_records,
@@ -300,6 +342,7 @@ def _load_controlled(
         )
 
         violation_rows.extend(_violation_rows(violations, metadata))
+        clipping_rows.append(_clipping_row(metadata, decisions, record["session_id"]))
         counts = Counter(str(row["action"]) for row in decisions)
         for action in ACTIONS:
             action_rows.append({**metadata, "action": action, "count": counts[action], "share": counts[action] / steps})
@@ -343,6 +386,7 @@ def _load_controlled(
         pd.DataFrame(decision_rows),
         pd.DataFrame(action_rows),
         pd.DataFrame(violation_rows),
+        pd.DataFrame(clipping_rows),
         [
             {
                 "path": str(path.relative_to(EVIDENCE_ROOT)),
@@ -366,7 +410,9 @@ def _step_values(times: np.ndarray, values: np.ndarray, grid: np.ndarray) -> np.
 def _load_live(
     index_path: Path,
     analysis: Path,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, list[dict[str, Any]]]:
+) -> tuple[
+    pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, list[dict[str, Any]]
+]:
     index = _json(index_path)
     if index.get("schema_version") != "argos.live-campaign-index.v1":
         raise RuntimeError("Unsupported live campaign schema")
@@ -393,6 +439,7 @@ def _load_live(
     violation_rows: list[dict[str, Any]] = []
     timeline_rows: list[dict[str, Any]] = []
     reward_rows: list[dict[str, Any]] = []
+    clipping_rows: list[dict[str, Any]] = []
     live_grid = np.arange(0.0, float(index["duration_minutes"]) + 0.001, 0.5)
 
     for run in sorted(index["runs"], key=lambda row: (row["scenario"], row["variant"], int(row["live_seed"]))):
@@ -406,13 +453,11 @@ def _load_live(
             raise RuntimeError(f"Live summary hash mismatch: {run_id}")
 
         decisions = _jsonl(persistence / "rl_decisions.jsonl")
+        run_metadata = {"run_id": run_id, "scenario": scenario, "variant": variant, "live_seed": live_seed}
         violation_rows.extend(
-            _violation_rows(
-                _jsonl(persistence / "slo_violations.jsonl"),
-                {"run_id": run_id, "scenario": scenario, "variant": variant, "live_seed": live_seed},
-                tenant_profiles,
-            )
+            _violation_rows(_jsonl(persistence / "slo_violations.jsonl"), run_metadata, tenant_profiles)
         )
+        clipping_rows.append(_clipping_row(run_metadata, decisions, run_id))
         counts = Counter(str(row["action"]) for row in decisions)
         total = len(decisions)
         for action in ACTIONS:
@@ -495,6 +540,7 @@ def _load_live(
         pd.DataFrame(violation_rows),
         pd.DataFrame(timeline_rows),
         pd.DataFrame(reward_rows),
+        pd.DataFrame(clipping_rows),
         [manifest_row],
     )
 
@@ -648,16 +694,87 @@ def _write_summary_tables(
 
 
 
+def _paired_sensitivity(pairs: pd.DataFrame, keys: list[str]) -> list[dict[str, Any]]:
+    """Summarize paired deltas of the clipped and the unclipped reward side by side."""
+    rows: list[dict[str, Any]] = []
+    for key, group in pairs.groupby(keys, sort=False):
+        row: dict[str, Any] = dict(zip(keys, key if isinstance(key, tuple) else (key,)))
+        significant = {}
+        for name in ("reward", "raw_reward"):
+            deltas = group[f"{name}_delta"]
+            center, lower, upper = _mean_ci(deltas)
+            row.update(
+                {
+                    f"{name}_mean_delta": center,
+                    f"{name}_ci95_low": lower,
+                    f"{name}_ci95_high": upper,
+                    f"{name}_wins": int((deltas > 0).sum()),
+                }
+            )
+            significant[name] = lower > 0 or upper < 0
+        row["conclusion_changed"] = bool(
+            (row["reward_mean_delta"] > 0) != (row["raw_reward_mean_delta"] > 0)
+            or significant["reward"] != significant["raw_reward"]
+            or row["reward_wins"] != row["raw_reward_wins"]
+        )
+        rows.append(row)
+    return rows
+
+
+def _write_clipping_tables(
+    controlled_out: Path,
+    live_out: Path,
+    controlled_clipping: pd.DataFrame,
+    live_clipping: pd.DataFrame,
+) -> None:
+    """Report how often the reward clip binds and whether clipping changes any paired conclusion."""
+    controlled_clipping.to_csv(controlled_out / "controlled_reward_clipping.csv", index=False)
+    live_clipping.to_csv(live_out / "live_reward_clipping.csv", index=False)
+
+    values = ["reward_per_step", "raw_reward_per_step"]
+    seed_values = controlled_clipping.groupby(["runtime", "controller", "seed"], as_index=False)[values].mean()
+    controlled_pairs = []
+    for runtime in RUNTIMES:
+        runtime_values = seed_values[seed_values.runtime == runtime]
+        for baseline in ("static", "threshold", "best_fixed"):
+            base = runtime_values[runtime_values.controller == baseline][["seed", *values]]
+            for controller in CONTROLLERS:
+                if controller == baseline:
+                    continue
+                own = runtime_values[runtime_values.controller == controller][["seed", *values]]
+                paired = own.merge(base, on="seed", suffixes=("", "_baseline"), validate="one_to_one")
+                paired["reward_delta"] = paired["reward_per_step"] - paired["reward_per_step_baseline"]
+                paired["raw_reward_delta"] = paired["raw_reward_per_step"] - paired["raw_reward_per_step_baseline"]
+                paired["runtime"], paired["controller"], paired["baseline"] = runtime, controller, baseline
+                controlled_pairs.append(paired)
+    pd.DataFrame(
+        _paired_sensitivity(pd.concat(controlled_pairs, ignore_index=True), ["runtime", "controller", "baseline"])
+    ).to_csv(controlled_out / "controlled_reward_clipping_sensitivity.csv", index=False)
+
+    static_live = live_clipping[live_clipping.variant == "static"][["scenario", "live_seed", *values]]
+    live_pairs = []
+    for variant in [v for v in VARIANTS if v != "static"]:
+        own = live_clipping[live_clipping.variant == variant][["scenario", "live_seed", *values]]
+        paired = own.merge(static_live, on=["scenario", "live_seed"], suffixes=("", "_baseline"), validate="one_to_one")
+        paired["reward_delta"] = paired["reward_per_step"] - paired["reward_per_step_baseline"]
+        paired["raw_reward_delta"] = paired["raw_reward_per_step"] - paired["raw_reward_per_step_baseline"]
+        paired["variant"], paired["baseline"] = variant, "static"
+        live_pairs.append(paired)
+    pd.DataFrame(
+        _paired_sensitivity(pd.concat(live_pairs, ignore_index=True), ["scenario", "variant", "baseline"])
+    ).to_csv(live_out / "live_reward_clipping_sensitivity.csv", index=False)
+
+
 def generate(output: Path, controlled_indexes: tuple[Path, ...], live_index: Path, live_analysis: Path) -> None:
     controlled_out = output / "controlled" / "tables"
     live_out = output / "live" / "tables"
     controlled_out.mkdir(parents=True, exist_ok=True)
     live_out.mkdir(parents=True, exist_ok=True)
 
-    controlled_runs, controlled_decisions, controlled_actions, controlled_violations, _ = (
+    controlled_runs, controlled_decisions, controlled_actions, controlled_violations, controlled_clipping, _ = (
         _load_controlled(controlled_indexes)
     )
-    live_runs, live_actions, live_violations, live_timeline, live_rewards, _ = _load_live(
+    live_runs, live_actions, live_violations, live_timeline, live_rewards, live_clipping, _ = _load_live(
         live_index, live_analysis
     )
 
@@ -671,6 +788,7 @@ def generate(output: Path, controlled_indexes: tuple[Path, ...], live_index: Pat
     live_timeline.to_csv(live_out / "live_load_timeline.csv", index=False)
     live_rewards.to_csv(live_out / "live_reward_timeline.csv", index=False)
     _write_summary_tables(controlled_out, live_out, controlled_runs, live_runs)
+    _write_clipping_tables(controlled_out, live_out, controlled_clipping, live_clipping)
 
     table_count = len(list(controlled_out.glob("*.csv"))) + len(list(live_out.glob("*.csv")))
     print(
